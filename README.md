@@ -1,10 +1,24 @@
 # 🌌 ASCILINE Engine
 
-**ASCILINE** is a high-performance, real-time ASCII video rendering engine for the web. It streams video frames from a Python backend directly into a web browser at **60 FPS** using binary WebSockets and HTML5 Canvas.
+**ASCILINE** is a high-performance, real-time ASCII video rendering engine. **Our core objective is to transform the web into a highly dynamic and interactive typographic canvas.** By moving away from traditional video players, ASCILINE streams visual data from a Python backend directly into the browser at **60 FPS** as raw, manipulable text.
 
-![ASCILINE Showcase](https://via.placeholder.com/800x450.png?text=Add+Your+Amazing+ASCII+GIF+Here) <!-- Replace with your actual GIF -->
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/cc38d219-b4d2-4873-82dc-2abb179b5665" width="600" alt="Animation" />
+  <br>
+  <br>
+  <img src="https://github.com/user-attachments/assets/6bd7f5c0-81de-49fe-ba0d-9a8872ec8ae3" width="600" alt="Animation-after" />
+  <br>
+  <sub><i>* Showcases rendered using Mode 3 (32K Colors)</i></sub>
+</p>
 
-## 🚀 Key Features
+## 🎯 Strategic Vision & Core Capabilities
+
+1. **Pure Typographic Manipulation**: The visual stream is not a standard media file—it's raw HTML/Canvas text. This makes the impossible possible: you can apply real-time CSS filters (neon glows, text shadows) to a playing video, dynamically manipulate colors, or let users literally copy a moving visual element with their cursor.
+2. **Local AI & LLM Ready**: By reducing complex pixel streams into structured logical strings, ASCILINE acts as a perfect bridge for AI. Instead of feeding heavy computer vision models, lightweight text blocks can be fed directly to Local LLMs. Analyzing visual changes becomes as simple as taking a "diff" between two text strings.
+3. **Ultra-Low Bandwidth & IoT Compatibility**: Standard codecs (H.264/VP9) choke microcontrollers and weak networks. ASCILINE processes the heavy lifting once on the backend, streaming only a few kilobytes of String packets per second via WebSockets. It enables zero-latency live streams on satellite connections, embedded systems, and extreme low-bandwidth environments.
+4. **Bypassing Browser Constraints**: Modern browsers aggressively throttle autoplay videos, and ad-blockers restrict traditional media frames. To the browser, ASCILINE is simply "JavaScript updating text on a page." This circumvents traditional restrictions, allowing for immediate, unblockable visual streams.
+
+## 🚀 Technical Features
 
 -   **Real-Time Streaming**: Low-latency video-to-ASCII conversion.
 -   **High Performance**: Uses **HTML5 Canvas** for rendering instead of heavy DOM elements, enabling 60 FPS playback.
@@ -63,5 +77,11 @@ The engine supports different fidelity levels via the `--mode` flag:
 python stream_server.py --mode 5 --cols 240 --rows 100
 ```
 
-## 📜 License
-MIT License. Feel free to use and abuse for your own ASCII adventures!
+## 📜 License & Ethical Guardrails
+
+**MIT License (with Anti-Ad Restriction)**
+
+ASCILINE is distributed under the MIT License, but with a strict ethical guardrail.
+Because this engine bypasses standard browser constraints and ad-blockers (by rendering pure text instead of video), we strictly prohibit its use by ad-networks to serve unblockable advertisements. 
+
+See the [LICENSE](LICENSE) file for the full text, which includes the **ANTI-ADVERTISEMENT RESTRICTION** clause.

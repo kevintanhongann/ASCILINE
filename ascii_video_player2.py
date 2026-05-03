@@ -1,13 +1,13 @@
 """
 ascii_video_player.py
 =====================
-Modüler, renkli (True Color / 24-bit ANSI), sıfır titremeli ASCII video oynatıcı.
+Modular, True Color (24-bit ANSI), zero-flicker ASCII video player.
 
-  - VideoDecoder    : Video → (gray, color) kare çifti üretir.
-  - AsciiMapper     : Gri matris → ASCII karakter + ANSI True Color kodu → String.
-  - TerminalRenderer: Ana döngü, FPS kontrolü, yön tespiti, render.
+  - VideoDecoder    : Produces (gray, color) frame pairs from video.
+  - AsciiMapper     : Gray matrix -> ASCII character + ANSI True Color code -> String.
+  - TerminalRenderer: Main loop, FPS control, orientation detection, rendering.
 
-Bağımlılıklar:
+Dependencies:
     pip install opencv-python numpy
 """
 
@@ -18,20 +18,20 @@ import numpy as np
 import cv2
 import os
 
-# PowerShell/CMD (Windows) üzerinde ANSI renk kodlarını aktif etmek için:
+# Enable ANSI color codes on PowerShell/CMD (Windows):
 os.system("")
 
 
 # ─────────────────────────────────────────────
-#  MODÜL 1 ─ VideoDecoder
+#  MODULE 1 ─ VideoDecoder
 # ─────────────────────────────────────────────
 class VideoDecoder:
     """
-    Video dosyasını açar ve her kare için (gray, bgr) çifti üretir.
+    Opens the video file and yields (gray, bgr) pair for each frame.
 
-    Renkli render için hem gri (karakter seçimi) hem de
-    orijinal BGR (renk örnekleme) matrisine ihtiyaç var.
-    İkisi de aynı resize işleminden geçer → boyut tutarlılığı garantili.
+    For color rendering, both gray (for character selection) and
+    original BGR (for color sampling) matrices are needed.
+    Both undergo the same resize operation -> size consistency guaranteed.
     """
 
     def __init__(self, path: str, cols: int, rows: int) -> None:
@@ -58,7 +58,7 @@ class VideoDecoder:
 
         small = cv2.resize(frame, self._size, interpolation=cv2.INTER_LINEAR)
         gray  = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-        return gray, small   # small = küçültülmüş BGR karesi
+        return gray, small   # small = downscaled BGR frame
 
     def release(self):
         self._cap.release()
@@ -68,81 +68,81 @@ class VideoDecoder:
 
 
 # ─────────────────────────────────────────────
-#  MODÜL 2 ─ AsciiMapper
+#  MODULE 2 ─ AsciiMapper
 # ─────────────────────────────────────────────
 class AsciiMapper:
     """
-    Gri + BGR matrisini ANSI True Color kodlarıyla renklendirilmiş
-    ASCII çerçeve dizisine dönüştürür.
+    Converts Gray + BGR matrix into a string of ASCII characters
+    colored with ANSI True Color codes.
 
-    ── True Color ANSI Formatı ─────────────────────────────────────────────
-      \033[38;2;R;G;Bm{karakter}\033[0m
-      └─ ön plan rengi ─────────┘
+    ── True Color ANSI Format ─────────────────────────────────────────────
+      \033[38;2;R;G;Bm{character}\033[0m
+      └─ foreground color ───────┘
 
-    ── Renk Kuantizasyonu (Performans Optimizasyonu) ───────────────────────
-      Her piksel için ayrı bir escape kodu üretmek yerine renk değerleri
-      6-bit'e indirilir (>> 2 << 2, 64 seviye/kanal).
-      Bu sayede ardışık aynı renkli pikseller tek bir escape koduyla
-      temsil edilir → string boyutu ve stdout.write yükü azalır.
-      Gözle algılanabilir renk kaybı olmaz (16M → ~262K renk).
+    ── Color Quantization (Performance Optimization) ───────────────────────
+      Instead of generating a separate escape code for every pixel, color values
+      are downsampled to 6-bit (>> 2 << 2, 64 levels/channel).
+      This allows consecutive pixels with the same color to share a single escape code
+      -> reduces string size and stdout.write overhead.
+      There is no visually perceptible loss of color (16M -> ~262K colors).
 
     ── RLE (Run-Length Encoding) ───────────────────────────────────────────
-      Aynı renkteki ardışık karakterler için escape kodu tekrar yazılmaz;
-      yalnızca renk değiştiğinde yeni kod eklenir.
-      Tipik bir karede %40-60 oranında string küçülmesi sağlar.
+      The escape code is not repeated for consecutive characters of the same color;
+      a new code is appended only when the color changes.
+      This provides a 40-60% reduction in string size for a typical frame.
     """
 
     DEFAULT_PALETTE = list(
         " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESwqkP6h9d4VpOGbUAKXHm8RD#$Bg0MNWQ%&@"
     )
 
-    # ANSI sıfırlama + satır başı
+    # ANSI reset + carriage return
     _RESET = "\033[0m"
 
     def __init__(self, palette: list[str] | None = None, quantize_bits: int = 0) -> None:
         """
-        :param palette:       Karakter listesi (None → 93 seviyeli varsayılan)
-        :param quantize_bits: Renk kuantizasyonu için sağdan kaydırma miktarı.
-                              2 → 64 seviye/kanal (hızlı),
-                              0 → tam 8-bit (en yüksek kalite, varsayılan).
+        :param palette:       Character list (None -> 93 level default)
+        :param quantize_bits: Right bit shift amount for color quantization.
+                              2 -> 64 levels/channel (fast),
+                              0 -> full 8-bit (highest quality, default).
         """
         p = palette or self.DEFAULT_PALETTE
         self._n   = len(p)
         self._lut = np.array(p, dtype='U1')
-        self._qb  = quantize_bits           # kuantizasyon bit kaydırma miktarı
+        self._qb  = quantize_bits           # quantization bit shift amount
 
     def convert(self, gray: np.ndarray, bgr: np.ndarray) -> str:
         """
-        Her piksel için:
-          1. Gri değeri → ASCII karakter (yoğunluk LUT)
-          2. BGR rengi  → ANSI True Color escape kodu (kuantize + RLE)
+        For each pixel:
+          1. Gray value -> ASCII character (intensity LUT)
+          2. BGR color  -> ANSI True Color escape code (quantized + RLE)
 
-        :param gray: shape=(H,W)   uint8 gri matris
-        :param bgr:  shape=(H,W,3) uint8 BGR renk matrisi
-        :return: Terminale doğrudan yazılabilecek renkli ASCII dizesi
+        :param gray: shape=(H,W)   uint8 gray matrix
+        :param bgr:  shape=(H,W,3) uint8 BGR color matrix
+        :return: Colored ASCII string ready to be written directly to the terminal
         """
         H, W = gray.shape
 
-        # ── Adım 1: Piksel yoğunluğu → karakter indeksi ──────────────────
+        # ── Step 1: Pixel intensity -> character index ──────────────────
         indices = np.floor_divide(gray, max(1, 256 // self._n))
         np.clip(indices, 0, self._n - 1, out=indices)
         char_matrix = self._lut[indices]    # shape=(H,W), dtype='U1'
 
-        # ── Adım 2: Renk kuantizasyonu ────────────────────────────────────
-        # BGR → RGB sıralaması (ANSI kodu R,G,B sırasında)
-        rgb = bgr[:, :, ::-1]              # BGR → RGB view, kopyasız
+        # ── Step 2: Color quantization ────────────────────────────────────
+        # BGR -> RGB order (ANSI code is in R,G,B order)
+        rgb = bgr[:, :, ::-1]              # BGR -> RGB view, no copy
 
         if self._qb > 0:
-            # Düşük bitleri sıfırla → renk hassasiyetini düşür, hızı artır
+            # Zero out the lower bits -> reduce color precision, increase speed
             qb = self._qb
-            rgb = (rgb >> qb) << qb        # örn. qb=2: 0b11111100 maskeleme
+            rgb = (rgb >> qb) << qb        # e.g., qb=2: 0b11111100 masking
 
-        # ── Adım 3: RLE ile renkli string birleştirme ─────────────────────
-        # Saf NumPy ile RLE yapılamadığından bu kısım Python döngüsüdür.
-        # Ancak satır başına yalnızca renk değişimlerinde escape kodu yazılır;
-        # tekrarlanan renkler için döngü yükü minimize edilir.
+        # ── Step 3: RLE and colored string construction ─────────────────────
+        # Since RLE cannot be done with pure NumPy, this part uses a Python loop.
+        # However, the escape code is only written when the color changes per row;
+        # loop overhead is minimized for repeated colors.
         lines = []
-        prev_r = prev_g = prev_b = -1      # önceki renk (ilk piksel hep farklı)
+        prev_r = prev_g = prev_b = -1      # previous color (first pixel is always different)
 
         for row_idx in range(H):
             row_chars  = char_matrix[row_idx]   # shape=(W,) char array
@@ -154,7 +154,7 @@ class AsciiMapper:
                            int(row_colors[col_idx, 1]), \
                            int(row_colors[col_idx, 2])
 
-                # RLE: sadece renk değişince yeni escape kodu ekle
+                # RLE: only add a new escape code if the color changes
                 if r != prev_r or g != prev_g or b != prev_b:
                     buf.append(f"\033[38;2;{r};{g};{b}m")
                     prev_r, prev_g, prev_b = r, g, b
@@ -167,27 +167,27 @@ class AsciiMapper:
 
 
 # ─────────────────────────────────────────────
-#  MODÜL 3 ─ TerminalRenderer
+#  MODULE 3 ─ TerminalRenderer
 # ─────────────────────────────────────────────
 class TerminalRenderer:
     """
-    VideoDecoder → AsciiMapper → stdout akışını yönetir.
+    Manages the flow: VideoDecoder -> AsciiMapper -> stdout.
 
-    Ek özellikler (renkli sürüm):
-      - Başlangıçta terminal arka planını siyaha alır (\033[40m)
-        → renkli karakterler daha belirgin görünür.
-      - Her kare sonunda \033[0m ile renk sıfırlanır
-        → sonraki terminal komutları etkilenmez.
+    Additional features (colored version):
+      - Sets terminal background to black initially (\033[40m)
+        -> colored characters appear more prominent.
+      - Resets color with \033[0m at the end of each frame
+        -> prevents affecting subsequent terminal commands.
     """
 
     _CURSOR_HOME   = "\033[H"
     _HIDE_CURSOR   = "\033[?25l"
     _SHOW_CURSOR   = "\033[?25h"
-    _BLACK_BG      = "\033[40m"    # siyah arka plan — kontrast için
+    _BLACK_BG      = "\033[40m"    # black background — for contrast
     _RESET_ALL     = "\033[0m"
     _CLEAR_SCREEN  = "\033[2J"
 
-    CHAR_RATIO = 0.45              # terminal karakter en-boy oranı düzeltmesi
+    CHAR_RATIO = 0.45              # terminal character aspect ratio correction
 
     def __init__(
         self,
@@ -196,22 +196,22 @@ class TerminalRenderer:
         quantize_bits: int = 0,
     ) -> None:
         """
-        :param path:          Video dosyası yolu
-        :param palette:       Özel karakter paleti (None → 93 seviyeli)
-        :param quantize_bits: Renk kuantizasyonu (0=tam kalite, 2=hızlı)
+        :param path:          Path to video file
+        :param palette:       Custom character palette (None -> 93 levels)
+        :param quantize_bits: Color quantization (0=full quality, 2=fast)
         """
-        # ── Video meta bilgisi ────────────────────────────────────────────
+        # ── Video metadata ────────────────────────────────────────────
         _probe = VideoDecoder(path, 2, 2)
         vid_w, vid_h = _probe.vid_w, _probe.vid_h
         src_fps      = _probe.fps
         _probe.release()
 
-        # ── Terminal boyutları ────────────────────────────────────────────
+        # ── Terminal dimensions ────────────────────────────────────────────
         term    = shutil.get_terminal_size(fallback=(220, 50))
         t_cols  = term.columns
         t_lines = term.lines - 2
 
-        # ── Yön tespiti & en-boy oranı korumalı boyutlandırma ─────────────
+        # ── Orientation detection & aspect-ratio-preserving resizing ─────────────
         orientation = "portrait" if vid_h > vid_w else "landscape"
         aspect      = vid_h / vid_w
 
@@ -228,16 +228,16 @@ class TerminalRenderer:
                 cols = t_cols
                 rows = max(1, int(cols * aspect * self.CHAR_RATIO))
 
-        # ── Bilgi ekranı ──────────────────────────────────────────────────
+        # ── Info screen ──────────────────────────────────────────────────
         print(self._CLEAR_SCREEN)
         print(
             f"\033[1m[ASCII Player — True Color]\033[0m\n"
-            f"  Yön       : {orientation.upper()}\n"
-            f"  Video     : {vid_w}×{vid_h}\n"
-            f"  ASCII     : {cols}×{rows} karakter\n"
-            f"  FPS       : {src_fps:.1f}\n"
-            f"  Kuantizasyon: {2**(8-quantize_bits)} seviye/kanal\n"
-            f"  Çıkış     : Ctrl+C\n"
+            f"  Orientation : {orientation.upper()}\n"
+            f"  Video       : {vid_w}x{vid_h}\n"
+            f"  ASCII       : {cols}x{rows} characters\n"
+            f"  FPS         : {src_fps:.1f}\n"
+            f"  Quantization: {2**(8-quantize_bits)} levels/channel\n"
+            f"  Exit        : Ctrl+C\n"
         )
         time.sleep(2.0)
 
@@ -247,7 +247,7 @@ class TerminalRenderer:
         self._frame_t       = 1.0 / self._fps
 
     def play(self) -> None:
-        """Ana oynatma döngüsü."""
+        """Main playback loop."""
         stdout = sys.stdout
 
         stdout.write(self._HIDE_CURSOR + self._BLACK_BG)
@@ -276,20 +276,20 @@ class TerminalRenderer:
 
 
 # ─────────────────────────────────────────────
-#  GİRİŞ NOKTASI
+#  ENTRY POINT
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="True Color ANSI ASCII video oynatıcı — sıfır titreme"
+        description="True Color ANSI ASCII video player — zero flicker"
     )
     parser.add_argument("video",
-        help="Video dosyası yolu (MP4, AVI, MKV …)")
+        help="Path to video file (MP4, AVI, MKV ...)")
     parser.add_argument("--palette", default=None,
-        help="Özel karakter paleti, boşlukla ayrılmış")
+        help="Custom character palette, space-separated")
     parser.add_argument("--quality", type=int, choices=[0, 1, 2, 3], default=0,
-        help="Renk kalitesi: 0=maksimum kalite, 3=maksimum hız (varsayılan: 0)")
+        help="Color quality: 0=max quality, 3=max speed (default: 0)")
     args = parser.parse_args()
 
     custom_palette = args.palette.split() if args.palette else None

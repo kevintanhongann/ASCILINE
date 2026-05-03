@@ -1,8 +1,8 @@
 """
 stream_server.py
 ================
-Video to ASCII çekirdek motorunu HTTP/WebSocket üzerinden web'e yayınlar.
-Bağımlılıklar: pip install fastapi uvicorn websockets
+Streams the core Video-to-ASCII engine to the web via HTTP/WebSocket.
+Dependencies: pip install fastapi uvicorn websockets
 """
 
 import asyncio
@@ -15,7 +15,7 @@ import uvicorn
 import os
 from websockets.exceptions import ConnectionClosed
 
-# Mevcut motoru import ediyoruz (ascii_video_player2.py)
+# Import the existing engine (ascii_video_player2.py)
 from ascii_video_player2 import VideoDecoder, AsciiMapper
 
 app = FastAPI()
@@ -31,14 +31,14 @@ def get_html_content():
 
 @app.get("/")
 async def root():
-    """İstemciye Frontend (HTML/JS/CSS) dosyasını sunar."""
+    """Serves the Frontend (HTML/JS/CSS) file to the client."""
     return HTMLResponse(get_html_content())
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
-    İstemci bağlandığında videoyu decode etmeye başlar, 
-    AsciiMapper ile saf ASCII'ye çevirir ve WebSockets üzerinden gönderir.
+    Starts decoding the video when a client connects, 
+    converts to pure ASCII using AsciiMapper and sends via WebSockets.
     """
     await websocket.accept()
     
@@ -50,7 +50,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         decoder = VideoDecoder(video_path, cols, rows)
     except FileNotFoundError:
-        await websocket.send_text("Hata: Video dosyası bulunamadı!")
+        await websocket.send_text("Error: Video file not found!")
         await websocket.close()
         return
 
@@ -58,34 +58,34 @@ async def websocket_endpoint(websocket: WebSocket):
     fps = decoder.fps
     frame_t = 1.0 / fps
     
-    # Karakter → byte kodu lookup tablosu (binary format için)
+    # Character -> byte code lookup table (for binary format)
     char_byte_lut = np.array([ord(c) for c in mapper._lut], dtype=np.uint8)
     
-    # Kuantizasyon seviyesini bir kere belirle (render_mode sabit)
+    # Set the quantization level once (render_mode is fixed)
     qb = {5: 0, 4: 2, 3: 3, 2: 5}.get(render_mode, 0)
     
-    # İstemciye meta bilgilerini yolla (cols/rows grid oluşturmak için)
+    # Send meta information to the client (to create cols/rows grid)
     await websocket.send_text(f"INIT:{fps}:{render_mode}:{cols}:{rows}")
 
     try:
-        # Decoder iteratörü her kare için (gray, bgr) döndürüyor
-        # Binary frame buffer'ı önceden ayır (GC baskısını azalt)
+        # Decoder iterator yields (gray, bgr) for each frame
+        # Pre-allocate binary frame buffer (reduces GC pressure)
         frame_buf = np.empty((rows, cols, 4), dtype=np.uint8) if render_mode > 1 else None
         
         for gray_frame, bgr_frame in decoder:
             t0 = asyncio.get_event_loop().time()
             
-            # Ortak: yoğunluk → karakter indeksi
+            # Common: intensity -> character index
             indices = np.floor_divide(gray_frame, max(1, 256 // mapper._n))
             np.clip(indices, 0, mapper._n - 1, out=indices)
             
             if render_mode == 1:
-                # --- SAF ASCII DÖNÜŞÜMÜ (text) ---
+                # --- PURE ASCII CONVERSION (text) ---
                 char_matrix = mapper._lut[indices]
                 lines = [''.join(row) for row in char_matrix]
                 await websocket.send_text('\n'.join(lines))
             else:
-                # --- RENKLİ BINARY DÖNÜŞÜMÜ (numpy, sıfır Python döngüsü) ---
+                # --- COLOR BINARY CONVERSION (numpy, zero Python loops) ---
                 H, W = gray_frame.shape
                 char_codes = char_byte_lut[indices]   # (H,W) uint8
                 
@@ -105,27 +105,27 @@ async def websocket_endpoint(websocket: WebSocket):
                 await asyncio.sleep(wait)
                 
     except (WebSocketDisconnect, ConnectionClosed):
-        print("İstemci yayından ayrıldı.")
+        print("Client disconnected from the stream.")
     finally:
         decoder.release()
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Gerçek Zamanlı ASCII Web Sunucusu")
-    parser.add_argument("video", help="Yayınlanacak video dosyası", default="video.mp4", nargs='?')
-    parser.add_argument("--port", type=int, default=8000, help="Sunucu portu")
-    parser.add_argument("--mode", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Render Modu: 1=B&W, 2=512renk, 3=32K, 4=262K, 5=16M Ultra")
-    parser.add_argument("--cols", type=int, default=200, help="Terminal kolon genişliği")
-    parser.add_argument("--rows", type=int, default=80, help="Terminal satır yüksekliği")
+    parser = argparse.ArgumentParser(description="Real-Time ASCII Web Server")
+    parser.add_argument("video", help="Video file to be streamed", default="video.mp4", nargs='?')
+    parser.add_argument("--port", type=int, default=8000, help="Server port")
+    parser.add_argument("--mode", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Render Mode: 1=B&W, 2=512colors, 3=32K, 4=262K, 5=16M Ultra")
+    parser.add_argument("--cols", type=int, default=200, help="Terminal column width")
+    parser.add_argument("--rows", type=int, default=80, help="Terminal row height")
     args = parser.parse_args()
     
-    # Argümanları global olarak state içine kaydet
+    # Save arguments globally into the state
     app.state.video_path = args.video
     app.state.render_mode = args.mode
     app.state.cols = args.cols
     app.state.rows = args.rows
     
-    print(f"[{args.video}] yayınlanmaya hazır. Mod: {args.mode}, Çöz: {args.cols}x{args.rows}")
-    print(f"Sunucu başlatılıyor... Lütfen tarayıcınızdan http://localhost:{args.port} adresine gidin.")
+    print(f"[{args.video}] ready to stream. Mode: {args.mode}, Res: {args.cols}x{args.rows}")
+    print(f"Starting server... Please go to http://localhost:{args.port} in your browser.")
     
     uvicorn.run(app, host="0.0.0.0", port=args.port, ws_ping_interval=None, ws_ping_timeout=None)
